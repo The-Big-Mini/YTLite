@@ -46,9 +46,9 @@ on:
         type: string
 
       tweak_url:
-        description: "URL to the YouTube Plus tweak file"
+        description: "URL to a custom YTLite .deb to use instead of building from source (optional)"
         default: ""
-        required: true
+        required: false
         type: string
 
       display_name:
@@ -62,12 +62,6 @@ on:
         default: "com.google.ios.youtube"
         required: true
         type: string
-
-      info_note:
-        description: "TIP: Learn more about integrations in the README via the link below"
-        default: "https://github.com/dayanch96/YTLite#tweak-integration-details"
-        type: string
-        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -102,7 +96,7 @@ jobs:
       - name: Hide sensitive inputs
         uses: levibostian/action-hide-sensitive-inputs@v1
         with:
-          exclude_inputs: bundle_id,display_name,enable_demc,enable_ryd,enable_ytabc,enable_youpip,enable_yq,enable_ytuhd,info_note
+          exclude_inputs: bundle_id,display_name,enable_demc,enable_ryd,enable_ytabc,enable_youpip,enable_yq,enable_ytuhd
 
       - name: Download and validate IPA
         run: |

@@ -33,11 +33,6 @@ on:
         required: true
         default: false
 
-      tweak_version:
-        type: string
-        required: false
-        default: ""
-
       tweak_url:
         type: string
         required: false
@@ -58,7 +53,6 @@ jobs:
           echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
 
       - name: Cache Theos
-        if: ${{ inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc }}
         id: theos
         uses: actions/cache@v5
         env:
@@ -69,7 +63,7 @@ jobs:
           restore-keys: ${{ env.cache-name }}
 
       - name: Setup Theos
-        if: ${{ (inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc) && steps.theos.outputs.cache-hit != 'true' }}
+        if: steps.theos.outputs.cache-hit != 'true'
         uses: actions/checkout@v6
         with:
           repository: theos/theos
@@ -78,7 +72,7 @@ jobs:
           submodules: recursive
 
       - name: Download iOS SDK
-        if: ${{ (inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc) && steps.theos.outputs.cache-hit != 'true' }}
+        if: steps.theos.outputs.cache-hit != 'true'
         run: |
           git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
           cd sdks
@@ -86,24 +80,17 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
-      - name: Download YouTube Plus (by version)
-        if: ${{ inputs.tweak_version != '' }}
+      - name: Install roothide stub header
         run: |
-          deb_url="https://github.com/dayanch96/YTLite/releases/download/v${{ inputs.tweak_version }}/com.dvntm.ytlite_${{ inputs.tweak_version }}_iphoneos-arm.deb"
-          wget "$deb_url" --no-verbose -O ytplus.deb
-
-      - name: Download YouTube Plus (by URL)
-        if: ${{ inputs.tweak_url != '' }}
-        run: |
-          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
-          file_type=$(file --mime-type -b ytplus.deb)
-          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
-            echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
-            exit 1
-          fi
+          cat > $THEOS/include/roothide.h << 'ROOTHIDE_EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #ifndef jbroot
+          static inline NSString* jbroot(NSString* path) { return path; }
+          #endif
+          ROOTHIDE_EOF
 
       - name: Clone YouTubeHeader
-        if: ${{ inputs.enable_youpip || inputs.enable_ytuhd || inputs.enable_yq || inputs.enable_ryd || inputs.enable_ytabc || inputs.enable_demc }}
         run: |
           if [ -d "$THEOS/include/YouTubeHeader" ]; then
             cd $THEOS/include/YouTubeHeader && git pull
@@ -122,6 +109,71 @@ jobs:
             cd $THEOS/include/PSHeader && git pull
           else
             cd $THEOS/include && git clone --quiet --depth=1 https://github.com/PoomSmart/PSHeader.git
+          fi
+
+      - name: Checkout YTLite fork source
+        if: ${{ inputs.tweak_url == '' }}
+        uses: actions/checkout@v4
+        with:
+          path: ytlite-fork
+
+      - name: Write protobuf ObjC stub headers
+        if: ${{ inputs.tweak_url == '' }}
+        run: |
+          mkdir -p ytlite-fork/protobuf/objectivec
+          cat > ytlite-fork/protobuf/objectivec/GPBDescriptor.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          @interface GPBDescriptor : NSObject
+          @end
+          @interface GPBExtensionDescriptor : NSObject
+          @end
+          EOF
+          cat > ytlite-fork/protobuf/objectivec/GPBMessage.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #import "GPBDescriptor.h"
+          @class GPBUnknownFieldSet;
+          @interface GPBMessage : NSObject
+          @property (nonatomic, strong, readonly) GPBUnknownFieldSet *unknownFields;
+          + (instancetype)parseFromData:(NSData *)data error:(NSError **)errorPtr;
+          + (instancetype)deserializeFromString:(NSString *)string;
+          - (BOOL)hasExtension:(GPBExtensionDescriptor *)extension;
+          - (id)getExtension:(GPBExtensionDescriptor *)extension;
+          @end
+          EOF
+          cat > ytlite-fork/protobuf/objectivec/GPBUnknownField.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          @interface GPBUnknownField : NSObject
+          @property (nonatomic, strong, readonly) NSArray<NSData *> *lengthDelimitedList;
+          @end
+          EOF
+          cat > ytlite-fork/protobuf/objectivec/GPBUnknownFieldSet.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #import "GPBUnknownField.h"
+          @interface GPBUnknownFieldSet : NSObject
+          - (BOOL)hasField:(NSInteger)fieldNumber;
+          - (GPBUnknownField *)getField:(NSInteger)fieldNumber;
+          @end
+          EOF
+
+      - name: Build YTLite from fork source
+        if: ${{ inputs.tweak_url == '' }}
+        run: |
+          cd ytlite-fork
+          make clean package DEBUG=0 FINALPACKAGE=1
+          mv packages/*.deb ../ytplus.deb
+
+      - name: Download YouTube Plus (by URL override)
+        if: ${{ inputs.tweak_url != '' }}
+        run: |
+          wget "${{ inputs.tweak_url }}" --no-verbose -O ytplus.deb
+          file_type=$(file --mime-type -b ytplus.deb)
+          if [[ "$file_type" != "application/vnd.debian.binary-package" ]]; then
+            echo "::error::Validation failed: The file is not a valid DEB file. Detected type: $file_type."
+            exit 1
           fi
 
       - name: Clone YouPiP
@@ -207,7 +259,7 @@ jobs:
       - name: Clone Open in YouTube (Safari extension)
         run: |
           git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/BillyCurtis/OpenYouTubeSafariExtension
-          cd OpenYoutubeSafariExtension
+          cd OpenYouTubeSafariExtension
           git sparse-checkout set --no-cone OpenYoutubeSafariExtension.appex
           git checkout
           mv *.appex ..
