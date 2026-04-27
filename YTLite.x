@@ -50,21 +50,30 @@ static UIImage *YTImageNamed(NSString *imageName) {
         }
     }
 
+    if (ytlBool(@"removeLiveVids") && [description containsString:@"liveVideo"]) return nil;
+    if (ytlBool(@"removePlayables") && [description containsString:@"playable"]) return nil;
+    if (ytlBool(@"removeHorizontalFeeds") && [description containsString:@"horizontalListRenderer"]) return nil;
+    if (ytlBool(@"removeCommunityPosts") && [description containsString:@"backstagePost"]) return nil;
+    if (ytlBool(@"removeMixPlaylists") && [description containsString:@"lockupViewModel"]) return nil;
+    if (ytlBool(@"removeMoreTopics") && [description containsString:@"buttonCardRenderer"]) return nil;
+
     return %orig;
 }
 %end
 
 %hook YTSectionListViewController
 - (void)loadWithModel:(YTISectionListRenderer *)model {
-    if (ytlBool(@"noAds")) {
-        NSMutableArray <YTISectionListSupportedRenderers *> *contentsArray = model.contentsArray;
-        NSIndexSet *removeIndexes = [contentsArray indexesOfObjectsPassingTest:^BOOL(YTISectionListSupportedRenderers *renderers, NSUInteger idx, BOOL *stop) {
-            YTIItemSectionRenderer *sectionRenderer = renderers.itemSectionRenderer;
-            YTIItemSectionSupportedRenderers *firstObject = [sectionRenderer.contentsArray firstObject];
-            return firstObject.hasPromotedVideoRenderer || firstObject.hasCompactPromotedVideoRenderer || firstObject.hasPromotedVideoInlineMutedRenderer;
-        }];
-        [contentsArray removeObjectsAtIndexes:removeIndexes];
-    } %orig;
+    NSMutableArray <YTISectionListSupportedRenderers *> *contentsArray = model.contentsArray;
+    NSIndexSet *removeIndexes = [contentsArray indexesOfObjectsPassingTest:^BOOL(YTISectionListSupportedRenderers *renderers, NSUInteger idx, BOOL *stop) {
+        YTIItemSectionRenderer *sectionRenderer = renderers.itemSectionRenderer;
+        YTIItemSectionSupportedRenderers *firstObject = [sectionRenderer.contentsArray firstObject];
+        if (ytlBool(@"noAds") && (firstObject.hasPromotedVideoRenderer || firstObject.hasCompactPromotedVideoRenderer || firstObject.hasPromotedVideoInlineMutedRenderer)) return YES;
+        if (ytlBool(@"removeCommunityPosts") && firstObject.hasBackstagePostThreadRenderer) return YES;
+        if (ytlBool(@"removeHorizontalFeeds") && firstObject.hasHorizontalListRenderer) return YES;
+        return NO;
+    }];
+    [contentsArray removeObjectsAtIndexes:removeIndexes];
+    %orig;
 }
 %end
 
@@ -150,6 +159,11 @@ static UIImage *YTImageNamed(NSString *imageName) {
     arg1 = (ytlBool(@"noRelatedWatchNexts")) ? 1 : arg1;
     %orig(arg1);
 }
+%end
+
+// Disable Autoplay End Screen
+%hook YTAutonavController
+- (BOOL)canAutoplay { return ytlBool(@"noAutonavEndScreenCards") ? NO : %orig; }
 %end
 
 %hook YTHeaderView
@@ -242,6 +256,12 @@ static UIImage *YTImageNamed(NSString *imageName) {
 - (BOOL)enableSwipeToRemoveInPlaylistWatchEp { return YES; }
 // Enable Old-style Minibar For Playlist Panel
 - (BOOL)queueClientGlobalConfigEnableFloatingPlaylistMinibar { return ytlBool(@"playlistOldMinibar") ? NO : %orig; }
+// Ambient Mode
+- (BOOL)enableLightThemeAmbientMode { return ytlBool(@"disableAmbientMode") ? NO : %orig; }
+- (BOOL)iosEnableFullScreenAmbientMode { return ytlBool(@"disableAmbientMode") ? NO : %orig; }
+- (BOOL)iosAmbientModeExtendWidthInLandscape { return ytlBool(@"disableAmbientMode") ? NO : %orig; }
+// Loop Button
+- (BOOL)loopingEnabled { return ytlBool(@"rememberLoopMode") ? YES : %orig; }
 %end
 
 // Remove Dark Background in Overlay
@@ -637,7 +657,9 @@ void autoSkipShorts(YTPlayerViewController *self, YTSingleVideoController *video
         @"5": @(ytlBool(@"removeShareMenu")),
         @"12": @(ytlBool(@"removeNotInterestedMenu")),
         @"31": @(ytlBool(@"removeDontRecommendMenu")),
-        @"58": @(ytlBool(@"removeReportMenu"))
+        @"58": @(ytlBool(@"removeReportMenu")),
+        @"22": @(ytlBool(@"removeFeedbackMenu")),
+        @"57": @(ytlBool(@"removeRemixMenu"))
     };
 
     if (![actionsToRemove[identifier] boolValue]) {
@@ -712,9 +734,27 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
                 [self removeCellsAtIndexPath:indexPath];
             }
         }
-    } else if (([cell isKindOfClass:objc_lookUpClass("YTReelShelfCell")] && ytlBool(@"hideShorts")) ||
-        ([cell isKindOfClass:objc_lookUpClass("YTHorizontalCardListCell")] && ytlBool(@"noContinueWatching"))) {
-        [self removeCellsAtIndexPath:indexPath];
+    } else {
+        BOOL isReelShelf = [cell isKindOfClass:objc_lookUpClass("YTReelShelfCell")];
+        BOOL isHorizontalCard = [cell isKindOfClass:objc_lookUpClass("YTHorizontalCardListCell")];
+
+        BOOL shouldRemoveShorts = isReelShelf && ytlBool(@"hideShorts");
+        if (shouldRemoveShorts && ytlBool(@"keepSubsShorts")) {
+            UIResponder *responder = self;
+            while ((responder = responder.nextResponder)) {
+                if ([responder isKindOfClass:NSClassFromString(@"YTPivotBarViewController")]) {
+                    YTPivotBarViewController *pivotVC = (YTPivotBarViewController *)responder;
+                    if ([pivotVC.selectedPivotIdentifier isEqualToString:@"FEsubscriptions"]) {
+                        shouldRemoveShorts = NO;
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (shouldRemoveShorts || (isHorizontalCard && (ytlBool(@"noContinueWatching") || ytlBool(@"removeHorizontalFeeds")))) {
+            [self removeCellsAtIndexPath:indexPath];
+        }
     } return %orig;
 }
 
@@ -770,6 +810,24 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 - (void)setShareButton:(id)arg1 { if (!ytlBool(@"hideShortsShare")) %orig; }
 - (void)setNativePivotButton:(id)arg1 { if (!ytlBool(@"hideShortsAvatars")) %orig; }
 - (void)setPivotButtonElementRenderer:(id)arg1 { if (!ytlBool(@"hideShortsAvatars")) %orig; }
+- (void)setSubscribeButtonRenderer:(id)arg1 { if (!ytlBool(@"hideShortsSubscribe")) %orig; }
+- (void)setReelSuperThanksButton:(id)arg1 { if (!ytlBool(@"hideShortsThanks")) %orig; }
+%end
+
+%hook YTReelWatchHeaderView
+- (void)setChannelBarElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsChannelName")) %orig; }
+- (void)setHeaderRenderer:(id)renderer { if (!ytlBool(@"hideShortsDescription")) %orig; }
+- (void)setShortsVideoTitleElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsDescription")) %orig; }
+- (void)setSoundMetadataElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsAudioTrack")) %orig; }
+- (void)setActionElement:(id)renderer { if (!ytlBool(@"hideShortsPromoCards")) %orig; }
+- (void)setBadgeRenderer:(id)renderer { if (!ytlBool(@"hideShortsThanks")) %orig; }
+- (void)setMultiFormatLinkElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsSource")) %orig; }
+- (void)setAudioButtonRenderer:(id)renderer { if (!ytlBool(@"hideShortsAudioButton")) %orig; }
+- (void)setAudioMetadataRenderer:(id)renderer { if (!ytlBool(@"hideShortsAudioButton")) %orig; }
+- (void)setSuggestionsCarouselRenderer:(id)renderer { if (!ytlBool(@"hideShortsSuggestion")) %orig; }
+- (void)setStoreItemElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsProducts")) %orig; }
+- (void)setThumbnailOverlayRenderer:(id)renderer { if (!ytlBool(@"hideShortsSubscribe")) %orig; }
+- (void)setChannelThumbnailElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsUsername")) %orig; }
 %end
 
 %hook YTReelHeaderView
@@ -788,16 +846,6 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
         }
     }
 }
-%end
-
-%hook YTReelWatchHeaderView
-- (void)setChannelBarElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsChannelName")) %orig; }
-- (void)setHeaderRenderer:(id)renderer { if (!ytlBool(@"hideShortsDescription")) %orig; }
-- (void)setShortsVideoTitleElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsDescription")) %orig; }
-- (void)setSoundMetadataElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsAudioTrack")) %orig; }
-- (void)setActionElement:(id)renderer { if (!ytlBool(@"hideShortsPromoCards")) %orig; }
-- (void)setBadgeRenderer:(id)renderer { if (!ytlBool(@"hideShortsThanks")) %orig; }
-- (void)setMultiFormatLinkElementRenderer:(id)renderer { if (!ytlBool(@"hideShortsSource")) %orig; }
 %end
 
 static BOOL isOverlayShown = YES;
@@ -1146,7 +1194,8 @@ static void genImageFromLayer(CALayer *layer, UIColor *backgroundColor, void (^c
         @"FEshorts": @[@(ytlBool(@"removeShorts")), @(ytlBool(@"reExplore"))],
         @"FEsubscriptions": @[@(ytlBool(@"removeSubscriptions"))],
         @"FEuploads": @[@(ytlBool(@"removeUploads"))],
-        @"FElibrary": @[@(ytlBool(@"removeLibrary"))]
+        @"FElibrary": @[@(ytlBool(@"removeLibrary"))],
+        @"FEhype_leaderboard": @[@(ytlBool(@"hideHypeTab"))]
     };
 
     for (NSString *identifier in identifiersToRemove) {
@@ -1380,7 +1429,48 @@ static NSURL *newCoverURL(NSURL *originalURL) {
 // }
 // %end
 
+// Remove Share Identifier (si= parameter) From Share URLs
+static NSURL *stripShareIdentifier(NSURL *url) {
+    if (!url) return url;
+    NSString *abs = url.absoluteString;
+    if (![abs containsString:@"youtube.com"] && ![abs containsString:@"youtu.be"]) return url;
+    NSURLComponents *comps = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+    NSArray *items = comps.queryItems;
+    if (!items.count) return url;
+    NSArray *filtered = [items filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"name != 'si'"]];
+    comps.queryItems = filtered.count ? filtered : nil;
+    return [comps URL] ?: url;
+}
+
+%hook UIActivityViewController
+- (instancetype)initWithActivityItems:(NSArray *)activityItems applicationActivities:(NSArray *)applicationActivities {
+    if (ytlBool(@"noShareChunk")) {
+        NSMutableArray *cleaned = [NSMutableArray arrayWithCapacity:activityItems.count];
+        for (id item in activityItems) {
+            if ([item isKindOfClass:[NSURL class]]) {
+                [cleaned addObject:stripShareIdentifier((NSURL *)item)];
+            } else if ([item isKindOfClass:[NSString class]]) {
+                NSURL *url = [NSURL URLWithString:(NSString *)item];
+                NSURL *stripped = stripShareIdentifier(url);
+                [cleaned addObject:stripped ? stripped.absoluteString : item];
+            } else {
+                [cleaned addObject:item];
+            }
+        }
+        return %orig(cleaned, applicationActivities);
+    }
+    return %orig;
+}
+%end
+
 %ctor {
+    if (ytlBool(@"clearCacheAtStart")) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+            [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
+        });
+    }
+
     if (ytlBool(@"shortsOnlyMode") && (ytlBool(@"removeShorts") || ytlBool(@"reExplore"))) {
         ytlSetBool(NO, @"removeShorts");
         ytlSetBool(NO, @"reExplore");
