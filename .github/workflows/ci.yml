@@ -143,7 +143,8 @@ jobs:
         run: |
           git clone -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf.git protobuf
           cd protobuf
-          git sparse-checkout set --no-cone objectivec
+          git sparse-checkout init --cone
+          git sparse-checkout set objectivec
           git checkout
 
       - name: Build YTLite
