@@ -126,10 +126,15 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
-      - name: Install roothide headers
+      - name: Install roothide stub header
         run: |
-          curl -fsSL https://raw.githubusercontent.com/opa334/roothide/master/include/roothide.h \
-            -o $THEOS/include/roothide.h
+          cat > $THEOS/include/roothide.h << 'ROOTHIDE_EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #ifndef jbroot
+          static inline NSString* jbroot(NSString* path) { return path; }
+          #endif
+          ROOTHIDE_EOF
 
       - name: Clone YouTubeHeader
         run: git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git YouTubeHeader
