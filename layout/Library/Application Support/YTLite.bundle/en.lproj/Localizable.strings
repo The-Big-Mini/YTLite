@@ -719,4 +719,20 @@
 "Conflicts.AcceptRisks" = "I Accept All Risks";
 "Conflicts.CloseYT" = "Close YouTube";
 
+/* Tab bar toggle keys */
+"RemoveShortsTab" = "Hide Shorts tab";
+"RemoveShortsTabDesc" = "Hides the Shorts tab from the tab bar.";
+"RemoveSubscriptionsTab" = "Hide Subscriptions tab";
+"RemoveSubscriptionsTabDesc" = "Hides the Subscriptions tab from the tab bar.";
+"RemoveUploadsTab" = "Hide Create tab";
+"RemoveUploadsTabDesc" = "Hides the Create tab from the tab bar.";
+"RemoveLibraryTab" = "Hide Library tab";
+"RemoveLibraryTabDesc" = "Hides the Library tab from the tab bar.";
+"HideHypeTab" = "Hide Hype tab";
+"HideHypeTabDesc" = "Hides the Hype leaderboard tab from the tab bar.";
+
+/* Misc */
+"AdvancedMode" = "Advanced mode";
+"AdvancedModeDesc" = "Shows advanced settings sections. Requires app restart.";
+
 "DonationReminder" = "Your support helps to make YouTube Plus even better.\n\nYou can contribute or choose to disable these notifications in the YouTube Plus settings. Thank you💜";
