@@ -126,6 +126,21 @@ jobs:
           git checkout
           mv *.sdk $THEOS/sdks
 
+      - name: Install roothide headers
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/opa334/roothide/master/include/roothide.h \
+            -o $THEOS/include/roothide.h
+
+      - name: Clone YouTubeHeader
+        run: git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git YouTubeHeader
+
+      - name: Clone protobuf ObjC headers
+        run: |
+          git clone -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf.git protobuf
+          cd protobuf
+          git sparse-checkout set --no-cone objectivec
+          git checkout
+
       - name: Build YTLite
         run: |
           cd ytlite-source

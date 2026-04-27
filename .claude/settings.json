@@ -1,7 +1,37 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "skipDangerousModePermissionPrompt": true,
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Edit(.claude/**)",
+      "Edit(CLAUDE.md)",
+      "Glob(*)",
+      "Grep(*)",
+      "Read(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Write(*)",
+      "Write(.claude/**)",
+      "Write(CLAUDE.md)",
+      "mcp__github__*",
+      "mcp__memory__*",
+      "mcp__sequential-thinking__*",
+      "mcp__time__*"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "env": {
+    "GIT_AUTHOR_NAME": "Claude",
+    "GIT_AUTHOR_EMAIL": "noreply@anthropic.com",
+    "GIT_COMMITTER_NAME": "Claude",
+    "GIT_COMMITTER_EMAIL": "noreply@anthropic.com"
+  },
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
