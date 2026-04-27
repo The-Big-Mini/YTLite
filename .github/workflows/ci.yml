@@ -139,13 +139,50 @@ jobs:
       - name: Clone YouTubeHeader
         run: git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git YouTubeHeader
 
-      - name: Clone protobuf ObjC headers
+      - name: Write protobuf ObjC stub headers
         run: |
-          git clone -n --depth=1 --filter=tree:0 https://github.com/protocolbuffers/protobuf.git protobuf
-          cd protobuf
-          git sparse-checkout init --cone
-          git sparse-checkout set objectivec
-          git checkout
+          mkdir -p protobuf/objectivec
+          # GPBDescriptor.h — GPBExtensionDescriptor used by YTNativeShare.x
+          cat > protobuf/objectivec/GPBDescriptor.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          @interface GPBDescriptor : NSObject
+          @end
+          @interface GPBExtensionDescriptor : NSObject
+          @end
+          EOF
+          # GPBMessage.h — base class for all protobuf messages
+          cat > protobuf/objectivec/GPBMessage.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #import "GPBDescriptor.h"
+          @class GPBUnknownFieldSet;
+          @interface GPBMessage : NSObject
+          @property (nonatomic, strong, readonly) GPBUnknownFieldSet *unknownFields;
+          + (instancetype)parseFromData:(NSData *)data error:(NSError **)errorPtr;
+          + (instancetype)deserializeFromString:(NSString *)string;
+          - (BOOL)hasExtension:(GPBExtensionDescriptor *)extension;
+          - (id)getExtension:(GPBExtensionDescriptor *)extension;
+          @end
+          EOF
+          # GPBUnknownField.h
+          cat > protobuf/objectivec/GPBUnknownField.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          @interface GPBUnknownField : NSObject
+          @property (nonatomic, strong, readonly) NSArray<NSData *> *lengthDelimitedList;
+          @end
+          EOF
+          # GPBUnknownFieldSet.h
+          cat > protobuf/objectivec/GPBUnknownFieldSet.h << 'EOF'
+          #pragma once
+          #import <Foundation/Foundation.h>
+          #import "GPBUnknownField.h"
+          @interface GPBUnknownFieldSet : NSObject
+          - (BOOL)hasField:(NSInteger)fieldNumber;
+          - (GPBUnknownField *)getField:(NSInteger)fieldNumber;
+          @end
+          EOF
 
       - name: Build YTLite
         run: |
