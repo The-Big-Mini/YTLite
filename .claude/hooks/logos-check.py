@@ -15,6 +15,8 @@ def check_file(path: Path) -> list[str]:
 
     hook_depth = 0
     hook_open_line = None
+    group_depth = 0
+    group_open_line = None
     group_names: set[str] = set()
     inited_groups: set[str] = set()
     in_block_comment = False
@@ -38,13 +40,21 @@ def check_file(path: Path) -> list[str]:
             hook_depth += 1
             hook_open_line = i
 
-        # %end
+        # %group GroupName — closed by its own %end, separate from %hook depth
+        elif re.match(r"^%group\s+\w+", line):
+            group_depth += 1
+            group_open_line = i
+
+        # %end — closes innermost open block (%hook first, then %group)
         elif line == "%end":
-            if hook_depth == 0:
-                issues.append(f"  line {i}: stray %end with no matching %hook")
-            else:
+            if hook_depth > 0:
                 hook_depth -= 1
                 hook_open_line = None
+            elif group_depth > 0:
+                group_depth -= 1
+                group_open_line = None
+            else:
+                issues.append(f"  line {i}: stray %end with no matching %hook or %group")
 
         # %new — must be inside a %hook
         if re.match(r"^%new\b", line) and hook_depth == 0:
@@ -56,7 +66,7 @@ def check_file(path: Path) -> list[str]:
             if not re.match(r"^\s*#define", raw):
                 issues.append(f"  line {i}: %orig used outside of a %hook block")
 
-        # %group GroupName
+        # track group names for %init check
         m = re.match(r"^%group\s+(\w+)", line)
         if m:
             group_names.add(m.group(1))
@@ -71,9 +81,11 @@ def check_file(path: Path) -> list[str]:
         if re.match(r"^%(ctor|dtor)\b", line) and hook_depth > 0:
             issues.append(f"  line {i}: %ctor/%dtor inside a %hook block — should be at file scope")
 
-    # Unclosed hooks at end of file
+    # Unclosed blocks at end of file
     if hook_depth > 0:
         issues.append(f"  {hook_depth} unclosed %hook block(s) — last opened at line {hook_open_line}")
+    if group_depth > 0:
+        issues.append(f"  {group_depth} unclosed %group block(s) — last opened at line {group_open_line}")
 
     # %group blocks that are never %init-ed
     uninited = group_names - inited_groups
