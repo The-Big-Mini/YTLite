@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Fast static checks (Ubuntu, ~1 min) ─────────────────────────────────────
+  lint:
+    name: Static Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Logos static check
+        run: |
+          result=0
+          python3 .claude/hooks/logos-check.py || result=$?
+          if [ $result -ne 0 ]; then
+            echo "::error::Logos static check failed — fix issues above before merging"
+            exit 1
+          fi
+
+      - name: Patreon auth string regression
+        run: |
+          banned_keys="Log-inViaPatreon|FeaturesNotActivated|SkipLogInAlert|patreon\.com/dayanch96"
+          matches=$(grep -rE "$banned_keys" \
+            --include="*.x" \
+            --include="*.m" \
+            --include="*.h" \
+            --include="*.strings" \
+            --include="*.json" \
+            . 2>/dev/null || true)
+          if [ -n "$matches" ]; then
+            echo "::error::Patreon auth/gate strings detected — remove before merging"
+            echo "$matches"
+            exit 1
+          fi
+          echo "No Patreon gate strings found"
+
+      - name: Validate JSON files
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            python3 -m json.tool "$f" > /dev/null 2>&1 \
+              && echo "✓ $f" \
+              || { echo "::error file=$f::Invalid JSON"; fail=1; }
+          done < <(find . -name "*.json" -not -path "./.git/*" -print0)
+          exit $fail
+
+      - name: Validate workflow YAML
+        run: |
+          pip3 install --quiet pyyaml
+          python3 - <<'EOF'
+          import yaml, glob, sys
+          errors = []
+          for f in glob.glob('.github/workflows/*.yml'):
+              try:
+                  yaml.safe_load(open(f))
+              except yaml.YAMLError as e:
+                  errors.append(f'{f}: {e}')
+          for e in errors:
+              print(f'::error::{e}')
+          sys.exit(len(errors))
+          EOF
+
+      - name: Conflict marker check
+        run: |
+          if grep -rn "^<<<<<<< \|^=======$\|^>>>>>>> " --include="*.x" --include="*.m" --include="*.h" --include="*.strings" .; then
+            echo "::error::Unresolved merge conflict markers found"
+            exit 1
+          fi
+          echo "No conflict markers found"
+
+  # ── Build verification (macOS, ~8 min, PRs only) ────────────────────────────
+  build:
+    name: Build from Source
+    runs-on: macos-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ytlite-source
+
+      - name: Install Dependencies
+        run: brew install make ldid dpkg
+
+      - name: Set PATH and THEOS env
+        run: |
+          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+          echo "THEOS=${{ github.workspace }}/theos" >> $GITHUB_ENV
+
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        env:
+          cache-name: theos_cache_9bc7340
+        with:
+          path: theos/
+          key: ${{ env.cache-name }}
+          restore-keys: ${{ env.cache-name }}
+
+      - name: Setup Theos
+        if: steps.theos.outputs.cache-hit != 'true'
+        uses: actions/checkout@v6
+        with:
+          repository: theos/theos
+          ref: 9bc73406cf80b711ef4d02c15ff1dedc4478a275
+          path: theos
+          submodules: recursive
+
+      - name: Download iOS SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          cd sdks
+          git sparse-checkout set --no-cone iPhoneOS16.5.sdk
+          git checkout
+          mv *.sdk $THEOS/sdks
+
+      - name: Build YTLite
+        run: |
+          cd ytlite-source
+          make clean package DEBUG=0 FINALPACKAGE=1
+          echo "::notice::Build succeeded — $(ls packages/*.deb)"
