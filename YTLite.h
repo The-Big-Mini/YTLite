@@ -27,6 +27,11 @@
 - (void)setTitleDescription:(id)titleDescription;
 @end
 
+@interface YTIItemSectionSupportedRenderers (YTLite)
+@property (nonatomic, assign, readonly) BOOL hasBackstagePostThreadRenderer;
+@property (nonatomic, assign, readonly) BOOL hasHorizontalListRenderer;
+@end
+
 @interface YTSettingsSectionItemManager (Custom)
 - (YTSettingsSectionItem *)switchWithTitle:(NSString *)title key:(NSString *)key;
 - (YTSettingsSectionItem *)linkWithTitle:(NSString *)title description:(NSString *)description link:(NSString *)link;

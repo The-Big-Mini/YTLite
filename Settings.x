@@ -360,7 +360,7 @@ static NSString *GetCacheSize() {
             NSString *cachePath = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
             [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
             [[NSFileManager defaultManager] createDirectoryAtPath:cachePath withIntermediateDirectories:YES attributes:nil error:nil];
-            [cacheCell setDetailText:GetCacheSize()];
+            [self updateYTLiteSectionWithEntry:nil];
             return YES;
         }];
     [sectionItems addObject:clearCache];
