@@ -64,3 +64,7 @@ print("\nProject: /home/user/YTLite  |  Repo: the-big-mini/ytlite")
 print("Task: patch Patreon DRM from v5.2.1 binary OR forward-port features to source")
 print("See CLAUDE.md for full context, tool usage examples, and Logos syntax reference.\n")
 PYEOF
+
+# Run Logos static checker
+echo "Logos static check:"
+python3 "$(dirname "$0")/logos-check.py" && echo "  All .x files clean" || echo "  Issues found — review before building"

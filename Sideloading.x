@@ -138,7 +138,6 @@ BOOL isSelf() {
     return %orig(groupIdentifier);
 }
 %end
-%end
 
 %ctor {
     BOOL isAppStoreApp = [[NSFileManager defaultManager] fileExistsAtPath:[[NSBundle mainBundle] appStoreReceiptURL].path];
