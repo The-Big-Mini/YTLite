@@ -105,8 +105,8 @@ jobs:
 
       - name: Inject tweaks into IPA
         run: |
-          tweaks="ytplus.deb OpenYoutubeSafariExtension.appex"
-          for f in *.deb; do
+          tweaks=""
+          for f in *.deb *.appex; do
             [ -f "$f" ] && tweaks="$tweaks $f"
           done
           cyan -i youtube.ipa -o YouTubePlus.ipa -uwef $tweaks -n "${{ github.event.inputs.display_name }}" -b ${{ github.event.inputs.bundle_id }}
