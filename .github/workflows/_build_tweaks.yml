@@ -115,54 +115,18 @@ jobs:
         with:
           path: ytlite-fork
 
-      - name: Write protobuf ObjC stub headers
+      - name: Package YTLite (prebuilt dylib)
         if: ${{ inputs.tweak_url == '' }}
         run: |
-          mkdir -p protobuf/objectivec
-          cat > protobuf/objectivec/GPBDescriptor.h << 'EOF'
-          #pragma once
-          #import <Foundation/Foundation.h>
-          @interface GPBDescriptor : NSObject
-          @end
-          @interface GPBExtensionDescriptor : NSObject
-          @end
-          EOF
-          cat > protobuf/objectivec/GPBMessage.h << 'EOF'
-          #pragma once
-          #import <Foundation/Foundation.h>
-          #import "GPBDescriptor.h"
-          @class GPBUnknownFieldSet;
-          @interface GPBMessage : NSObject
-          @property (nonatomic, strong, readonly) GPBUnknownFieldSet *unknownFields;
-          + (instancetype)parseFromData:(NSData *)data error:(NSError **)errorPtr;
-          + (instancetype)deserializeFromString:(NSString *)string;
-          - (BOOL)hasExtension:(GPBExtensionDescriptor *)extension;
-          - (id)getExtension:(GPBExtensionDescriptor *)extension;
-          @end
-          EOF
-          cat > protobuf/objectivec/GPBUnknownField.h << 'EOF'
-          #pragma once
-          #import <Foundation/Foundation.h>
-          @interface GPBUnknownField : NSObject
-          @property (nonatomic, strong, readonly) NSArray<NSData *> *lengthDelimitedList;
-          @end
-          EOF
-          cat > protobuf/objectivec/GPBUnknownFieldSet.h << 'EOF'
-          #pragma once
-          #import <Foundation/Foundation.h>
-          #import "GPBUnknownField.h"
-          @interface GPBUnknownFieldSet : NSObject
-          - (BOOL)hasField:(NSInteger)fieldNumber;
-          - (GPBUnknownField *)getField:(NSInteger)fieldNumber;
-          @end
-          EOF
-
-      - name: Build YTLite from fork source
-        if: ${{ inputs.tweak_url == '' }}
-        run: |
-          cd ytlite-fork
-          make clean package DEBUG=0 FINALPACKAGE=1
-          mv packages/*.deb ../ytplus.deb
+          mkdir -p pkg/DEBIAN \
+                    "pkg/Library/MobileSubstrate/DynamicLibraries" \
+                    "pkg/Library/Application Support"
+          cp ytlite-fork/control pkg/DEBIAN/control
+          cp ytlite-fork/prebuilt/YTLite.dylib \
+             "pkg/Library/MobileSubstrate/DynamicLibraries/YTLite.dylib"
+          cp -r "ytlite-fork/layout/Library/Application Support/YTLite.bundle" \
+             "pkg/Library/Application Support/YTLite.bundle"
+          dpkg-deb --build pkg ytplus.deb
 
       - name: Download YouTube Plus (by URL override)
         if: ${{ inputs.tweak_url != '' }}
