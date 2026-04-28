@@ -93,7 +93,8 @@ jobs:
       - name: Clone YouTubeHeader
         run: |
           git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git YouTubeHeader
-          ln -sf "$(pwd)/YouTubeHeader" "$THEOS/include/YouTubeHeader"
+          rm -rf "$THEOS/include/YouTubeHeader"
+          cp -r YouTubeHeader "$THEOS/include/YouTubeHeader"
           if [ "${{ inputs.enable_demc }}" = "true" ]; then
             rm -rf "$THEOS/include/YTHeaders"
             cp -r YouTubeHeader "$THEOS/include/YTHeaders"
