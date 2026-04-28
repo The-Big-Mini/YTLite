@@ -92,14 +92,11 @@ jobs:
 
       - name: Clone YouTubeHeader
         run: |
-          if [ -d "$THEOS/include/YouTubeHeader" ]; then
-            cd $THEOS/include/YouTubeHeader && git pull
-          else
-            cd $THEOS/include && git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git
-          fi
+          git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git YouTubeHeader
+          ln -sf "$(pwd)/YouTubeHeader" "$THEOS/include/YouTubeHeader"
           if [ "${{ inputs.enable_demc }}" = "true" ]; then
             rm -rf "$THEOS/include/YTHeaders"
-            cp -r "$THEOS/include/YouTubeHeader" "$THEOS/include/YTHeaders"
+            cp -r YouTubeHeader "$THEOS/include/YTHeaders"
           fi
 
       - name: Clone PSHeader
@@ -120,8 +117,8 @@ jobs:
       - name: Write protobuf ObjC stub headers
         if: ${{ inputs.tweak_url == '' }}
         run: |
-          mkdir -p ytlite-fork/protobuf/objectivec
-          cat > ytlite-fork/protobuf/objectivec/GPBDescriptor.h << 'EOF'
+          mkdir -p protobuf/objectivec
+          cat > protobuf/objectivec/GPBDescriptor.h << 'EOF'
           #pragma once
           #import <Foundation/Foundation.h>
           @interface GPBDescriptor : NSObject
@@ -129,7 +126,7 @@ jobs:
           @interface GPBExtensionDescriptor : NSObject
           @end
           EOF
-          cat > ytlite-fork/protobuf/objectivec/GPBMessage.h << 'EOF'
+          cat > protobuf/objectivec/GPBMessage.h << 'EOF'
           #pragma once
           #import <Foundation/Foundation.h>
           #import "GPBDescriptor.h"
@@ -142,14 +139,14 @@ jobs:
           - (id)getExtension:(GPBExtensionDescriptor *)extension;
           @end
           EOF
-          cat > ytlite-fork/protobuf/objectivec/GPBUnknownField.h << 'EOF'
+          cat > protobuf/objectivec/GPBUnknownField.h << 'EOF'
           #pragma once
           #import <Foundation/Foundation.h>
           @interface GPBUnknownField : NSObject
           @property (nonatomic, strong, readonly) NSArray<NSData *> *lengthDelimitedList;
           @end
           EOF
-          cat > ytlite-fork/protobuf/objectivec/GPBUnknownFieldSet.h << 'EOF'
+          cat > protobuf/objectivec/GPBUnknownFieldSet.h << 'EOF'
           #pragma once
           #import <Foundation/Foundation.h>
           #import "GPBUnknownField.h"
