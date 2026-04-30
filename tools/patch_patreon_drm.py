@@ -299,6 +299,7 @@ VOID_NOP_SELECTORS = [
 # Selectors to SKIP when scanning for dispatch_once gates (non-settings features
 # where forcing table[0] could break functionality)
 DISPATCH_GATE_SKIP_SELECTORS = {
+    # Download features
     'showDownloadSheetShorts:withSender:', 'showDownloadSheet:withSender:',
     'showVideoSheet:withSender:', 'showImagesSheet:withSender:',
     'showInformationSheet:withSender:', 'showExtPlayerSheet:withSender:',
@@ -312,7 +313,17 @@ DISPATCH_GATE_SKIP_SELECTORS = {
     'showTranscriptSheet:withSender:', 'showCaptionsSheet:withSender:',
     'captionsForDownloading:', 'titleForCaption:', 'getCaptionsUrlSheet:sender:completion:',
     'shareSRT:sourceView:', 'presentationAnchorForWebAuthenticationSession:',
+    # Destructors: never patch — C++ destructors run at dealloc time, not in settings paths,
+    # and their large body gaps overspill into unrelated API initialization code.
+    '.cxx_destruct',
+    # Non-settings UI
+    'contactsButtonTapped:', 'thanksButtonTapped',
 }
+
+# Maximum bytes to scan past the method IMP when looking for gates.
+# ObjC method bodies are usually small; a large gap to the next IMP just means
+# there are non-ObjC helper functions in between that we must not touch.
+DISPATCH_GATE_MAX_BODY = 0x4000  # 16 KB cap
 
 
 def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
@@ -367,9 +378,11 @@ def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
     for i, (imp_va, sel, imp_foff) in enumerate(sorted_imps):
         if sel in DISPATCH_GATE_SKIP_SELECTORS:
             continue
-        # Function body: [imp_foff, next_imp_foff)
+        # Function body: [imp_foff, next_imp_foff), capped at DISPATCH_GATE_MAX_BODY.
+        # The cap prevents scanning into non-ObjC helper functions that happen to sit
+        # in the gap between two adjacent ObjC method IMPs.
         next_foff = sorted_imps[i + 1][2] if i + 1 < len(sorted_imps) else imp_foff + 0x10000
-        fn_size = next_foff - imp_foff
+        fn_size = min(next_foff - imp_foff, DISPATCH_GATE_MAX_BODY)
         gates = find_dispatch_once_gates(data, imp_foff, size_limit=fn_size)
         if gates:
             for gate_off in gates:
