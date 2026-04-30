@@ -296,10 +296,22 @@ VOID_NOP_SELECTORS = [
     'showAlertWithTitle:imageName:',
 ]
 
-# Selectors to SKIP when scanning for dispatch_once gates (non-settings features
-# where forcing table[0] could break functionality)
+# Selectors to SKIP when scanning for dispatch_once gates.
+#
+# Two categories of skip:
+#
+# A) Non-settings features where forcing table[0] could break functionality
+#    (download UI, destructors, non-settings button handlers).
+#
+# B) Singleton getters — methods whose dispatch_once gate protects a one-time
+#    initialisation (not a Patreon feature gate).  In these methods:
+#      table[0] = "already initialised, return cached value"  (nil in BSS = crash)
+#      table[1] = "first-time init" (creates the singleton)
+#    NOP'ing the CSINC forces table[0] forever → returns nil from uninitialised BSS
+#    → any caller that stores the result in an NSDictionary will crash with
+#    "attempt to insert nil object from objects[N]".
 DISPATCH_GATE_SKIP_SELECTORS = {
-    # Download features
+    # ── A. Download / non-settings features ─────────────────────────────────
     'showDownloadSheetShorts:withSender:', 'showDownloadSheet:withSender:',
     'showVideoSheet:withSender:', 'showImagesSheet:withSender:',
     'showInformationSheet:withSender:', 'showExtPlayerSheet:withSender:',
@@ -318,6 +330,37 @@ DISPATCH_GATE_SKIP_SELECTORS = {
     '.cxx_destruct',
     # Non-settings UI
     'contactsButtonTapped:', 'thanksButtonTapped',
+
+    # ── B. Singleton getters / one-time initialisers ─────────────────────────
+    # These use dispatch_once to create/cache a single instance.  NOP'ing forces
+    # table[0] = "return cached (nil)" every time → nil propagates into any
+    # NSDictionary that holds the result → startup crash.
+
+    # NSUserDefaults / preferences
+    'standardUserDefaults',   # YTLUserDefaults shared singleton (nil → crash on dict insert)
+    'registerDefaults',       # called by standardUserDefaults init block; skip to be safe
+    'reset',                  # user-defaults reset helper (no feature gate here)
+
+    # GCD / timer singletons
+    'timerQueue',             # dispatch_queue_t singleton; nil → crash on any dispatch call
+
+    # Slim-bar UI singletons (lazy-initialised view components)
+    'globalSlimBar',
+    'playerSlimBar',
+    'playerSlimBarVisibilityChange',
+
+    # Player accessor
+    'getPlayerIfAvailable',
+
+    # Class / instance initialisers that contain dispatch_once guards
+    # (these protect one-time setup, not Patreon checks)
+    'initialize',
+
+    # Import/export helpers — dispatch_once here guards file-manager setup, not
+    # a Patreon feature; table[0] skips the setup → nil file paths → crash when
+    # code tries to build a settings export dictionary and inserts nil values.
+    'exportYtlSettings:',
+    'importYtlSettings:',
 }
 
 # Maximum bytes to scan past the method IMP when looking for gates.
