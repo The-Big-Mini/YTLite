@@ -14,18 +14,19 @@ Usage:
 
 Obfuscation patterns handled:
   1. dispatch_once Patreon init gate: LDAR Wn,[Xm] / CMP Wn,#0 / CSINC Wn,WZR,WZR,NE
-     Found in initForSettings:, loadView, initTabs, rootTable (and any future methods
-     added to DVNTableViewController / YTPSettingsBuilder).
-     Fix: NOP the CSINC → always uses table[0] (normal/no-init path).
+     Found throughout all settings-related ObjC methods. The token lives in __bss
+     (always 0 at load time), causing every call to take the Patreon-init path (table[1]).
+     Fix: NOP the CSINC → W stays 0 → always use table[0] (non-Patreon path).
+     Scope: ALL ObjC method bodies parsed via __TEXT,__objc_methlist, using adjacent
+     IMP addresses as function boundaries (no more fragile first-RET heuristic).
 
-  2. showAlertWithMessage:showSettingsButton: IMP → RET
-     Silences all 80+ Patreon-popup call sites with a single patch.
+  2. showAlertWithMessage:showSettingsButton: / showAlertWithTitle:imageName: → RET
+     Silences Patreon-not-activated popups.
 
   3. patreonSection: / patreonButtonCellWithType:model: → MOV X0,#0 / RET
      Returns nil from all Patreon section/cell builders.
 
-  4. isLoggedIn forced true (heuristic: MOVZ W0/W8,#0 → #1 in known auth fns)
-     When ObjC metadata locates the method, replaces the false-return path.
+  4. isLoggedIn forced true (MOVZ W0/W8,#0 → #1 in known auth fns).
 """
 
 import struct
@@ -168,7 +169,6 @@ def build_method_map(data, macho, selref_map):
                 # Resolve selector name
                 sel_name = selref_map.get(sel_ref_va)
                 if sel_name is None:
-                    # Fallback: maybe offset points directly into __objc_methname
                     sfoff = macho.va2f(sel_ref_va)
                     if sfoff and mn_foff <= sfoff < mn_foff + mn_size:
                         try:
@@ -187,6 +187,21 @@ def build_method_map(data, macho, selref_map):
             pos += 4
 
     return method_map
+
+
+def build_sorted_imp_list(method_map):
+    """
+    Returns sorted list of (imp_va, sel_name, imp_foff) tuples.
+    Used to compute precise ObjC method body boundaries:
+    function body spans [imp_va, next_imp_va).
+    """
+    entries = []
+    for sel, imps in method_map.items():
+        for (imp_va, imp_foff) in imps:
+            if imp_foff is not None:
+                entries.append((imp_va, sel, imp_foff))
+    entries.sort()
+    return entries
 
 
 # ── Obfuscation pattern detection ─────────────────────────────────────────────
@@ -224,19 +239,16 @@ def find_dispatch_once_gates(data, func_foff, size_limit=0x10000):
     return gates
 
 
-def detect_text_size(data, func_foff, max_scan=0x10000):
+def find_func_end_by_next_imp(imp_foff, sorted_imps, fallback_size=0x10000):
     """
-    Rough function-size estimator: scans forward for RET or unconditional
-    branch that looks like an epilogue, returns size in bytes.
+    Returns the file offset where this ObjC method's body ends.
+    Uses the next IMP address in the sorted IMP list as the boundary.
+    Falls back to imp_foff + fallback_size if this IMP is the last.
     """
-    off = func_foff
-    end = min(func_foff + max_scan, len(data) - 4)
-    while off < end:
-        v = r32(data, off)
-        if v == RET:
-            return off - func_foff + 4
-        off += 4
-    return max_scan
+    for i, (va, sel, foff) in enumerate(sorted_imps):
+        if foff == imp_foff and i + 1 < len(sorted_imps):
+            return sorted_imps[i + 1][2]
+    return imp_foff + fallback_size
 
 
 # ── Patch plan ────────────────────────────────────────────────────────────────
@@ -281,15 +293,26 @@ NIL_RETURN_SELECTORS = [
 # Selectors whose IMP should be replaced with RET (void no-op)
 VOID_NOP_SELECTORS = [
     'showAlertWithMessage:showSettingsButton:',
+    'showAlertWithTitle:imageName:',
 ]
 
-# Selectors whose bodies should be scanned for dispatch_once Patreon init gates
-DISPATCH_GATE_SELECTORS = [
-    'initForSettings:',
-    'loadView',
-    'initTabs',
-    'rootTable',
-]
+# Selectors to SKIP when scanning for dispatch_once gates (non-settings features
+# where forcing table[0] could break functionality)
+DISPATCH_GATE_SKIP_SELECTORS = {
+    'showDownloadSheetShorts:withSender:', 'showDownloadSheet:withSender:',
+    'showVideoSheet:withSender:', 'showImagesSheet:withSender:',
+    'showInformationSheet:withSender:', 'showExtPlayerSheet:withSender:',
+    'getVideoFormatsArray:isShorts:', 'getAudioFormatsArray:',
+    'getBestAudioFormat:playerVC:', 'getEnglishAudioTrack:', 'detailForMimeType:',
+    'getResoForQuality:',
+    'downloadVideoWithFormat:withAudioFormats:fileName:extension:videoID:playerVC:sender:',
+    'downloadVideoWithUrl:audioUrl:fileName:extension:videoID:videoSize:audioSize:duration:captions:playerVC:',
+    'getThumbnail:', 'checkSpaceAvailabilityForMedia:completion:',
+    'showAudioTrackSelector:sender:playerVC:completion:', 'hasCaptions:',
+    'showTranscriptSheet:withSender:', 'showCaptionsSheet:withSender:',
+    'captionsForDownloading:', 'titleForCaption:', 'getCaptionsUrlSheet:sender:completion:',
+    'shareSRT:sourceView:', 'presentationAnchorForWebAuthenticationSession:',
+}
 
 
 def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
@@ -301,7 +324,9 @@ def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
 
     selref_map  = build_selref_map(data, macho)
     method_map  = build_method_map(data, macho, selref_map)
-    print(f"ObjC metadata: {len(selref_map)} selrefs, {len(method_map)} methods")
+    sorted_imps = build_sorted_imp_list(method_map)
+    print(f"ObjC metadata: {len(selref_map)} selrefs, {len(method_map)} selectors, "
+          f"{len(sorted_imps)} method IMPs")
 
     # ── 1. Nil-return patches ────────────────────────────────────────────────
     print("\n[1] Nil-return patches")
@@ -333,22 +358,26 @@ def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
     report['void_nop'] = VOID_NOP_SELECTORS
 
     # ── 3. dispatch_once gate NOPs ───────────────────────────────────────────
-    print("\n[3] dispatch_once Patreon init gate NOPs")
+    # Scan ALL ObjC method bodies using precise IMP-boundary sizing.
+    # Skip non-settings methods where forcing table[0] could break features.
+    print("\n[3] dispatch_once Patreon init gate NOPs (all ObjC methods)")
     gate_sites = {}
-    for sel in DISPATCH_GATE_SELECTORS:
-        imps = method_map.get(sel, [])
-        if not imps:
-            print(f"  {sel}: not found in methlist")
+    total_gate_count = 0
+
+    for i, (imp_va, sel, imp_foff) in enumerate(sorted_imps):
+        if sel in DISPATCH_GATE_SKIP_SELECTORS:
             continue
-        for (imp_va, imp_foff) in imps:
-            if imp_foff is None:
-                continue
-            fn_size = detect_text_size(data, imp_foff)
-            gates   = find_dispatch_once_gates(data, imp_foff, size_limit=fn_size + 64)
+        # Function body: [imp_foff, next_imp_foff)
+        next_foff = sorted_imps[i + 1][2] if i + 1 < len(sorted_imps) else imp_foff + 0x10000
+        fn_size = next_foff - imp_foff
+        gates = find_dispatch_once_gates(data, imp_foff, size_limit=fn_size)
+        if gates:
             for gate_off in gates:
                 plan.add(gate_off, NOP, f"{sel}@{imp_va:#x}: dispatch_once CSINC → NOP")
             gate_sites[f"{sel}@{imp_va:#x}"] = [f"{g:#x}" for g in gates]
-            print(f"  {sel} @ {imp_foff:#010x}: {len(gates)} gate(s) found")
+            total_gate_count += len(gates)
+
+    print(f"  {total_gate_count} gate(s) found across {len(gate_sites)} method(s)")
     report['dispatch_once_gates'] = gate_sites
 
     # ── 4. isLoggedIn heuristic (MOVZ Wx,#0 in Patreon auth functions) ───────
