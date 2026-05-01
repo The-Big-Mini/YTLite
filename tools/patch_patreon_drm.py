@@ -27,6 +27,17 @@ Obfuscation patterns handled:
      Returns nil from all Patreon section/cell builders.
 
   4. isLoggedIn forced true (MOVZ W0/W8,#0 → #1 in known auth fns).
+
+  5. colorForSegment: jump-table fix (DATA section, v5.2.1 only).
+     Root cause: -[YTLUserDefaults colorForSegment:] uses an obfuscated dispatch_once
+     whose jump table [at __DATA+0x11BBB88] has its entries in the wrong order in the
+     pre-patched prebuilt:
+       token=0 (first call) → skip XOR init → dict keys are garbage → dict[@"seg"] = nil
+       token=1 (subsequent) → run XOR init  → proper keys → returns UIColor
+     This causes -[YTLUserDefaults registerDefaults] to crash with
+     "attempt to insert nil object from objects[28]" because colorForSegment: is called
+     during first-time standardUserDefaults initialization before the init path has run.
+     Fix: swap target bits of jump-table[0] and [1] so first call runs the XOR init.
 """
 
 import struct
