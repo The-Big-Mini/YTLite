@@ -28,7 +28,12 @@ Obfuscation patterns handled:
 
   4. isLoggedIn forced true (MOVZ W0/W8,#0 → #1 in known auth fns).
 
-  5. colorForSegment: jump-table fix (DATA section, v5.2.1 only).
+  5. Caller-site NOPs: rootTable calls addSection:[patreonSection:entry].
+     patreonSection: now returns nil (patch #3 above); the caller does not
+     check for nil before calling addSection:, so the BL at 0x1385c4 is NOP'd
+     to silently discard the nil section.
+
+  6. colorForSegment: jump-table fix (DATA section, v5.2.1 only).
      Root cause: -[YTLUserDefaults colorForSegment:] uses an obfuscated dispatch_once
      whose jump table [at __DATA+0x11BBB88] has its entries in the wrong order in the
      pre-patched prebuilt:
@@ -375,9 +380,22 @@ DISPATCH_GATE_SKIP_SELECTORS = {
 }
 
 # Maximum bytes to scan past the method IMP when looking for gates.
-# ObjC method bodies are usually small; a large gap to the next IMP just means
-# there are non-ObjC helper functions in between that we must not touch.
-DISPATCH_GATE_MAX_BODY = 0x4000  # 16 KB cap
+# The IMP-boundary approach already scopes the scan precisely, so this cap
+# only matters for very large methods.  contribsTable body is ~20 KB; raising
+# to 64 KB covers it without scanning into unrelated non-ObjC code.
+DISPATCH_GATE_MAX_BODY = 0x10000  # 64 KB cap
+
+# ── Caller-site NOPs ────────────────────────────────────────────────────────
+# Some callers pass the nil return of patreonSection: directly into a method
+# that crashes on nil (e.g. addSection:nil in rootTable).  NOP the specific
+# BL instruction so the nil is silently discarded.
+#
+# Each entry: (file_offset, description)
+CALLER_SITE_NOPS = [
+    # rootTable: [table addSection:[self patreonSection:entry]]
+    # patreonSection: → nil → addSection:nil → EXC_BAD_ACCESS
+    (0x1385c4, "rootTable: addSection:[patreonSection:] → NOP"),
+]
 
 
 def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
@@ -421,6 +439,14 @@ def run(dylib_path, output_path=None, dry_run=False, dump_map=False):
             plan.add(imp_foff, RET, f"{sel} IMP → ret")
             print(f"  {sel} @ {imp_foff:#010x}: will ret-immediately")
     report['void_nop'] = VOID_NOP_SELECTORS
+
+    # ── 2b. Caller-site NOPs ─────────────────────────────────────────────────
+    # NOP specific call sites where a nil-return result would crash the caller.
+    print("\n[2b] Caller-site NOPs")
+    for foff, desc in CALLER_SITE_NOPS:
+        plan.add(foff, NOP, desc)
+        print(f"  {foff:#010x}: will NOP  [{desc}]")
+    report['caller_site_nops'] = [hex(foff) for foff, _ in CALLER_SITE_NOPS]
 
     # ── 3. dispatch_once gate NOPs ───────────────────────────────────────────
     # Scan ALL ObjC method bodies using precise IMP-boundary sizing.
