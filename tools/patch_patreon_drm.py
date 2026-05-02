@@ -395,6 +395,12 @@ CALLER_SITE_NOPS = [
     # rootTable: [table addSection:[self patreonSection:entry]]
     # patreonSection: → nil → addSection:nil → EXC_BAD_ACCESS
     (0x1385c4, "rootTable: addSection:[patreonSection:] → NOP"),
+
+    # KVC crash on launch: [YTPTableViewCell setValue:forKey:@"<XOR-obfuscated garbage>"]
+    # The key is an NSConstantString at 0x118A640 whose bytes are XOR-encoded DRM
+    # residue — not a valid KVC key on YTPTableViewCell.  NOP the BL so the bogus
+    # KVC call is silently skipped.  (Crash: setValue:forUndefinedKey: on launch.)
+    (0x112774, "YTPTableViewCell setValue:forKey:<garbage XOR key> → NOP"),
 ]
 
 
